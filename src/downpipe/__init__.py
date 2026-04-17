@@ -36,13 +36,19 @@ from markdown_it import MarkdownIt
 from rich.console import Console
 from rich.markdown import Markdown
 
+_MARKDOWN_PARSER = MarkdownIt("gfm-like", {"linkify": True}).enable(["linkify", "strikethrough", "table"])
+
+class DownpipeMarkdown(Markdown):
+    def __init__(self, markup: str, **kwargs):
+        super().__init__(markup, **kwargs)
+        self.parsed = _MARKDOWN_PARSER.parse(markup)
+
 def stream_markdown(input_stream=sys.stdin, force_color=False):
     is_tty = sys.stdout.isatty()
     # If it's a TTY, we want to know the width for proper wrapping.
     # If it's a pipe, we want to avoid wrapping or use a fixed width.
     console = Console(force_terminal=is_tty or force_color, width=None)
-    md_it = MarkdownIt("gfm-like", {"linkify": True})
-    md_it.enable(["linkify"])
+    md_it = _MARKDOWN_PARSER
     
     source = ""
     last_flushed_line = 0
@@ -88,21 +94,20 @@ def stream_markdown(input_stream=sys.stdin, force_color=False):
                     partial_height = 0
                 
                 chunk_to_print = "".join(lines[last_flushed_line : last_flushed_line + stable_lines])
-                console.print(Markdown(chunk_to_print))
+                console.print(DownpipeMarkdown(chunk_to_print))
                 last_flushed_line += stable_lines
                 sys.stdout.flush()
 
-            # LIVE PREVIEW (TTY only)
-            if is_tty:
-                current_chunk = "".join(lines[last_flushed_line:])
-                if current_chunk.strip():
-                    if partial_height > 0:
-                        sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
-                    
-                    with console.capture() as capture:
-                        console.print(Markdown(current_chunk))
-                    rendered = capture.get()
-                    
+                # LIVE PREVIEW (TTY only)
+                if is_tty:
+                    current_chunk = "".join(lines[last_flushed_line:])
+                    if current_chunk.strip():
+                        if partial_height > 0:
+                            sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
+
+                        with console.capture() as capture:
+                            console.print(DownpipeMarkdown(current_chunk))
+                        rendered = capture.get()
                     # We want to avoid trailing whitespace/newlines from console.print
                     # so we can track exact line count.
                     rendered_lines = rendered.splitlines()
@@ -136,7 +141,7 @@ def stream_markdown(input_stream=sys.stdin, force_color=False):
             
             remaining = "".join(source.splitlines(keepends=True)[last_flushed_line:])
             if remaining.strip():
-                console.print(Markdown(remaining))
+                console.print(DownpipeMarkdown(remaining))
                 sys.stdout.flush()
         except BrokenPipeError:
             pass
