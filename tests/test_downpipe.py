@@ -9,7 +9,8 @@ def test_stream_markdown_simple(monkeypatch, capsys):
     # We need to mock isatty to false to avoid TTY-specific logic
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
     
-    stream_markdown(input_data)
+    # Disable color for simple text matching
+    stream_markdown(input_data, color=False)
     
     captured = capsys.readouterr()
     assert "Hello" in captured.out
@@ -20,9 +21,9 @@ def test_stream_markdown_linkify(monkeypatch, capsys):
     input_data = io.StringIO("Check out https://google.com")
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
     
-    # We force color so that Rich generates the OSC 8 ansi escape sequence
+    # We keep color on (default) so that Rich generates the OSC 8 ansi escape sequence
     # instead of stripping it out for non-TTY.
-    stream_markdown(input_data, force_color=True)
+    stream_markdown(input_data)
     
     captured = capsys.readouterr()
     
@@ -33,15 +34,17 @@ def test_stream_markdown_linkify(monkeypatch, capsys):
 
 def test_stream_markdown_input_stream(capsys):
     input_data = io.StringIO("Explicit stream test")
-    stream_markdown(input_data)
+    # Disable color for simplicity
+    stream_markdown(input_data, color=False)
     captured = capsys.readouterr()
     assert "Explicit stream test" in captured.out
 
-def test_stream_markdown_force_color(capsys):
+def test_stream_markdown_color_default(capsys):
     input_data = io.StringIO("**Bold**")
-    # Force color should produce ANSI escape codes even if stdout is not a TTY
-    stream_markdown(input_data, force_color=True)
+    # Color should now be on by default
+    stream_markdown(input_data)
     captured = capsys.readouterr()
     # ANSI escape for bold/color in Rich usually starts with \x1b[
     assert "\x1b[" in captured.out
     assert "Bold" in captured.out
+

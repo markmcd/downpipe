@@ -43,11 +43,11 @@ class DownpipeMarkdown(Markdown):
         super().__init__(markup, **kwargs)
         self.parsed = _MARKDOWN_PARSER.parse(markup)
 
-def stream_markdown(input_stream=sys.stdin, force_color=False):
+def stream_markdown(input_stream=sys.stdin, color=True):
     is_tty = sys.stdout.isatty()
     # If it's a TTY, we want to know the width for proper wrapping.
     # If it's a pipe, we want to avoid wrapping or use a fixed width.
-    console = Console(force_terminal=is_tty or force_color, width=None)
+    console = Console(force_terminal=color, width=None)
     md_it = _MARKDOWN_PARSER
     
     source = ""
@@ -154,19 +154,20 @@ def main():
 
     parser = argparse.ArgumentParser(description="A Unix-friendly streaming Markdown renderer")
     parser.add_argument("file", nargs="?", help="Markdown file to render (default: stdin)")
-    parser.add_argument("-C", "--color", action="store_true", help="Force color output even when piping")
+    parser.add_argument("-r", "--raw", action="store_false", dest="color", default=True, help="Disable color output (raw mode)")
     parser.add_argument("--version", action="version", version=f"downpipe {__version__}")
     args = parser.parse_args()
 
     if args.file:
         try:
             with open(args.file, "r") as f:
-                stream_markdown(f, force_color=args.color)
+                stream_markdown(f, color=args.color)
         except FileNotFoundError:
             print(f"Error: file '{args.file}' not found", file=sys.stderr)
             sys.exit(1)
     else:
-        stream_markdown(sys.stdin, force_color=args.color)
+        stream_markdown(sys.stdin, color=args.color)
+
 
 if __name__ == "__main__":
     main()
