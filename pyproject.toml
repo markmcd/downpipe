@@ -14,6 +14,10 @@ dependencies = [
 ]
 license = { text = "MIT" }
 
+[project.urls]
+Homepage = "https://github.com/markmcd/downpipe"
+Repository = "https://github.com/markmcd/downpipe"
+
 [project.scripts]
 dp = "downpipe:main"
 
