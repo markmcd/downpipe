@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = [
     { name = "Mark McDonald", email = "i@ii.net" }
 ]
-description = "A Unix-friendly streaming Markdown renderer"
+description = "Render piped markdown streams fast."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
