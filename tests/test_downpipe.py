@@ -32,3 +32,12 @@ def test_stream_markdown_input_stream(capsys):
     stream_markdown(input_data)
     captured = capsys.readouterr()
     assert "Explicit stream test" in captured.out
+
+def test_stream_markdown_force_color(capsys):
+    input_data = io.StringIO("**Bold**")
+    # Force color should produce ANSI escape codes even if stdout is not a TTY
+    stream_markdown(input_data, force_color=True)
+    captured = capsys.readouterr()
+    # ANSI escape for bold/color in Rich usually starts with \x1b[
+    assert "\x1b[" in captured.out
+    assert "Bold" in captured.out
