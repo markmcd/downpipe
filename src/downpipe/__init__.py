@@ -41,18 +41,26 @@ _MARKDOWN_PARSER = MarkdownIt("gfm-like", {"linkify": True}).enable(["linkify", 
 class DownpipeMarkdown(Markdown):
     def __init__(self, markup: str, **kwargs):
         super().__init__(markup, **kwargs)
+        # Use our shared parser with linkify enabled
         self.parsed = _MARKDOWN_PARSER.parse(markup)
 
 def stream_markdown(input_stream=sys.stdin, color=True):
     is_tty = sys.stdout.isatty()
-    # If it's a TTY, we want to know the width for proper wrapping.
-    # If it's a pipe, we want to avoid wrapping or use a fixed width.
+    # We use a fixed width if possible to ensure stable rendering.
+    # Rich defaults to 80 if it cannot detect terminal width.
     console = Console(force_terminal=color, width=None)
-    md_it = _MARKDOWN_PARSER
     
     source = ""
-    last_flushed_line = 0
+    last_stable_source_line_count = 0
+    stable_render_lines = []
     partial_height = 0
+
+    def get_render_lines(text):
+        if not text.strip():
+            return []
+        with console.capture() as capture:
+            console.print(DownpipeMarkdown(text))
+        return capture.get().splitlines()
 
     try:
         while True:
@@ -61,69 +69,61 @@ def stream_markdown(input_stream=sys.stdin, color=True):
                 break
             source += char
             
-            # We split the source into lines.
-            lines = source.splitlines(keepends=True)
-            if not lines:
-                continue
-
-            # We parse everything since the last flush.
-            to_parse = "".join(lines[last_flushed_line:])
-            tokens = md_it.parse(to_parse)
-            
-            # Stable block detection (adapted from Textual)
-            # We identify top-level blocks.
+            # Stable block detection
+            tokens = _MARKDOWN_PARSER.parse(source)
             top_level_tokens = [t for t in tokens if t.level == 0 and t.map is not None]
             
-            stable_lines = 0
+            stable_source_line_count = 0
             if len(top_level_tokens) > 1:
                 # Every block except the last one is stable.
-                # The start of the last block is our stable line limit.
-                stable_lines = top_level_tokens[-1].map[0]
+                stable_source_line_count = top_level_tokens[-1].map[0]
             
-            # Blank line rule: a block is definitely finished if followed by a blank line.
-            # We check if the last line in our current to_parse is a newline followed by empty content
-            # or if we have a sequence of two newlines.
-            if len(lines) > 1 and lines[-1].strip() == "" and lines[-2].strip() != "":
-                stable_lines = len(lines) - last_flushed_line - 1
-
-            # If we found stable content, flush it.
-            if stable_lines > 0:
+            # If stable source has grown, flush it
+            if stable_source_line_count > last_stable_source_line_count:
+                # Clear any partial render before printing stable delta
                 if is_tty and partial_height > 0:
-                    # Move cursor up and clear the old partial render.
                     sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
                     partial_height = 0
                 
-                chunk_to_print = "".join(lines[last_flushed_line : last_flushed_line + stable_lines])
-                console.print(DownpipeMarkdown(chunk_to_print))
-                last_flushed_line += stable_lines
-                sys.stdout.flush()
+                source_lines = source.splitlines(keepends=True)
+                stable_source = "".join(source_lines[:stable_source_line_count])
+                
+                current_stable_render = get_render_lines(stable_source)
+                
+                # Output the delta of the stable render
+                delta = current_stable_render[len(stable_render_lines):]
+                if delta:
+                    for line in delta:
+                        sys.stdout.write(line + "\n")
+                    sys.stdout.flush()
+                
+                stable_render_lines = current_stable_render
+                last_stable_source_line_count = stable_source_line_count
 
-                # LIVE PREVIEW (TTY only)
-                if is_tty:
-                    current_chunk = "".join(lines[last_flushed_line:])
-                    if current_chunk.strip():
-                        if partial_height > 0:
-                            sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
-
-                        with console.capture() as capture:
-                            console.print(DownpipeMarkdown(current_chunk))
-                        rendered = capture.get()
-                    # We want to avoid trailing whitespace/newlines from console.print
-                    # so we can track exact line count.
-                    rendered_lines = rendered.splitlines()
-                    while rendered_lines and not rendered_lines[-1].strip():
-                        rendered_lines.pop()
+            # LIVE PREVIEW (TTY only)
+            if is_tty:
+                # Render the whole document to get the correct partial lines
+                full_render = get_render_lines(source)
+                
+                # The partial lines are those after the current stable ones
+                partial_lines = full_render[len(stable_render_lines):]
+                
+                if partial_height > 0:
+                    sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
+                
+                if partial_lines:
+                    # Remove trailing empty lines from partial for better feel
+                    while partial_lines and not partial_lines[-1].strip():
+                        partial_lines.pop()
                     
-                    if rendered_lines:
-                        final_render = "\n".join(rendered_lines) + "\n"
-                        sys.stdout.write(final_render)
+                    if partial_lines:
+                        output = "\n".join(partial_lines) + "\n"
+                        sys.stdout.write(output)
                         sys.stdout.flush()
-                        partial_height = final_render.count("\n")
+                        partial_height = output.count("\n")
                     else:
                         partial_height = 0
-                elif partial_height > 0:
-                    # Current chunk is empty, but we had a partial render. Clear it.
-                    sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
+                else:
                     partial_height = 0
 
     except KeyboardInterrupt:
@@ -134,14 +134,16 @@ def stream_markdown(input_stream=sys.stdin, color=True):
         os.dup2(devnull, sys.stdout.fileno())
         sys.exit(141) # standard exit code for SIGPIPE
     finally:
-        # Final flush of remaining content.
+        # Final flush of everything remaining.
         try:
             if is_tty and partial_height > 0:
                 sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
             
-            remaining = "".join(source.splitlines(keepends=True)[last_flushed_line:])
-            if remaining.strip():
-                console.print(DownpipeMarkdown(remaining))
+            full_render = get_render_lines(source)
+            delta = full_render[len(stable_render_lines):]
+            if delta:
+                for line in delta:
+                    sys.stdout.write(line + "\n")
                 sys.stdout.flush()
         except BrokenPipeError:
             pass
@@ -167,7 +169,6 @@ def main():
             sys.exit(1)
     else:
         stream_markdown(sys.stdin, color=args.color)
-
 
 if __name__ == "__main__":
     main()
