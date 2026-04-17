@@ -13,10 +13,18 @@ And a list:
 print("Hello World")
 ```
 
+For more info see [bing](https://google.com).
+
 The end.
 """
 
 for char in text:
-    sys.stdout.write(char)
-    sys.stdout.flush()
-    time.sleep(0.05)
+    try:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(0.05)
+    except BrokenPipeError:
+        import os
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        sys.exit(141)

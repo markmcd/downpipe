@@ -29,6 +29,7 @@ SOFTWARE.
 """
 
 import sys
+import os
 import argparse
 from importlib.metadata import version, PackageNotFoundError
 from markdown_it import MarkdownIt
@@ -122,15 +123,23 @@ def stream_markdown(input_stream=sys.stdin, force_color=False):
 
     except KeyboardInterrupt:
         pass
+    except BrokenPipeError:
+        # Prevent "Exception ignored" during Python's shutdown flush
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        sys.exit(141) # standard exit code for SIGPIPE
     finally:
         # Final flush of remaining content.
-        if is_tty and partial_height > 0:
-            sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
-        
-        remaining = "".join(source.splitlines(keepends=True)[last_flushed_line:])
-        if remaining.strip():
-            console.print(Markdown(remaining))
-            sys.stdout.flush()
+        try:
+            if is_tty and partial_height > 0:
+                sys.stdout.write(f"\x1b[{partial_height}A\x1b[J")
+            
+            remaining = "".join(source.splitlines(keepends=True)[last_flushed_line:])
+            if remaining.strip():
+                console.print(Markdown(remaining))
+                sys.stdout.flush()
+        except BrokenPipeError:
+            pass
 
 def main():
     try:
